@@ -1,0 +1,56 @@
+# Dependencias
+FROM node:20-slim AS deps
+
+WORKDIR /usr/src/app
+
+# Instalar procps que contiene el comando ps
+RUN apt-get update && apt-get install -y procps && rm -rf /var/lib/apt/lists/*
+
+COPY package.json ./
+COPY package-lock.json ./
+
+# Aumentar el timeout de npm
+RUN npm config set fetch-timeout 900000
+
+RUN npm install
+
+# Builder - construye la aplicación
+FROM node:20-slim AS build 
+
+WORKDIR /usr/src/app
+
+# Copiar de deps, los módulos de node
+COPY --from=deps /usr/src/app/node_modules ./node_modules
+
+# Copiar todos los archivos de la aplicación
+COPY . .
+
+
+# Es recomendable: RUN npm run test (para no construir en caso de que falle el test)
+RUN npm run build
+
+RUN npm ci -f --omit=dev && npm cache clean --force
+
+
+
+
+# Crear la imagen final de Docker
+FROM node:20-slim AS prod
+
+WORKDIR /usr/src/app
+
+# RUN apt-get update && apt-get install -y openssl procps
+
+COPY --from=build /usr/src/app/node_modules ./node_modules
+
+
+# Copiar la carpeta de DIST
+COPY --from=build /usr/src/app/dist ./dist
+
+ENV NODE_ENV=production
+
+USER node
+
+EXPOSE 3000
+
+CMD ["node", "dist/main.js"]
